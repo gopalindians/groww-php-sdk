@@ -1,6 +1,5 @@
 {
     "name": "gopalindians/groww-php-sdk",
-    "version": "1.0.0",
     "description": "PHP SDK for Groww Trading API",
     "type": "library",
     "keywords": ["groww", "trading", "api", "stocks", "sdk", "finance", "investment","algo-trading","stock-market","stock-broker","stock-market-api","stock-market-sdk","stock-market-broker","stock-market-trading","stock-market-investment","stock-market-algo-trading"],
