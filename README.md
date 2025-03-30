@@ -1,5 +1,12 @@
 # Groww PHP API SDK
 
+[![Latest Stable Version](https://img.shields.io/packagist/v/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
+[![Total Downloads](https://img.shields.io/packagist/dt/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
+[![License](https://img.shields.io/packagist/l/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
+[![PHP Version](https://img.shields.io/packagist/php-v/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
+[![GitHub stars](https://img.shields.io/github/stars/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/issues)
+
 A PHP SDK for interacting with the Groww Trading API.
 
 ## Installation
