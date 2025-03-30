@@ -7,7 +7,7 @@ A PHP SDK for interacting with the Groww Trading API.
 Install via Composer:
 
 ```bash
-composer require groww/api-client
+composer require gopalindians/groww-php-sdk
 ```
 
 ## Usage
