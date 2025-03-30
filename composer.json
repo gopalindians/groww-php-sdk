@@ -1,0 +1,43 @@
+{
+    "name": "gopalindians/groww-php-sdk",
+    "version": "1.0.0",
+    "description": "PHP SDK for Groww Trading API",
+    "type": "library",
+    "keywords": ["groww", "trading", "api", "stocks", "sdk", "finance", "investment"],
+    "homepage": "https://github.com/gopalindians/groww-php-sdk",
+    "require": {
+        "php": ">=7.4",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.0",
+        "friendsofphp/php-cs-fixer": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Groww\\API\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Groww\\API\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Gopal Sharma",
+            "email": "gopalindins@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/gopalindians/groww-php-sdk/issues",
+        "source": "https://github.com/gopalindians/groww-php-sdk"
+    },
+    "license": "MIT",
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+} 
