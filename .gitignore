@@ -6,4 +6,5 @@ composer.lock
 .DS_Store
 coverage/
 phpunit.xml.dist
-*.log 
+*.log
+**/.DS_Store
