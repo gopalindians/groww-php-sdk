@@ -31,13 +31,30 @@ abstract class Resource
      */
     protected function extractPayload(array $response): array
     {
-        if (!isset($response['status']) || $response['status'] !== 'SUCCESS') {
+        // Handle error responses first
+        if (isset($response['status']) && $response['status'] === 'ERROR') {
             throw new GrowwApiException(
-                $response['error']['message'] ?? 'Unknown error',
-                $response['error']['code'] ?? 'GA000'
+                $response['message'] ?? $response['error']['message'] ?? 'Unknown error',
+                $response['error_code'] ?? $response['error']['code'] ?? 'GA000'
             );
         }
 
-        return $response['payload'] ?? [];
+        // Check if this is a direct payload without wrapping
+        if (!isset($response['status']) && !isset($response['payload']) && !isset($response['data'])) {
+            return $response; // Response is already the data we want
+        }
+
+        // If using standard response format with 'data' field for testing
+        if (isset($response['status']) && $response['status'] === 'SUCCESS' && isset($response['data'])) {
+            return $response['data'];
+        }
+        
+        // If using standard API response format with 'payload' field
+        if ((!isset($response['status']) || $response['status'] === 'SUCCESS') && isset($response['payload'])) {
+            return $response['payload'];
+        }
+
+        // Return the response if we can't determine the structure
+        return $response;
     }
 } 

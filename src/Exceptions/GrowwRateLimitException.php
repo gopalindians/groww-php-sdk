@@ -23,7 +23,7 @@ class GrowwRateLimitException extends GrowwApiException
         string $message = "Rate limit exceeded",
         string $errorCode = "GA003",
         int $waitTime = 60,
-        \Throwable $previous = null
+        ?\Throwable $previous = null
     ) {
         $this->waitTime = $waitTime;
         parent::__construct($message, $errorCode, $previous);

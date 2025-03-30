@@ -6,6 +6,7 @@
 [![PHP Version](https://img.shields.io/packagist/php-v/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
 [![GitHub stars](https://img.shields.io/github/stars/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/issues)
+[![Tests](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php-tests.yml/badge.svg)](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php-tests.yml)
 
 A PHP SDK for interacting with the Groww Trading API.
 
@@ -211,10 +212,77 @@ $groww->setLogging(true, function($level, $message, $context) {
 });
 ```
 
+## Testing
+
+The SDK comes with a comprehensive test suite. To run the tests:
+
+1. Install development dependencies:
+
+```bash
+composer install --dev
+```
+
+2. Run PHPUnit:
+
+```bash
+./vendor/bin/phpunit
+```
+
+### Continuous Integration
+
+This project uses GitHub Actions for continuous integration. Every time code is pushed to the `main` or `master` branch, or when a pull request is created against these branches, the test suite is automatically executed on multiple PHP versions (7.4, 8.0, and 8.1).
+
+The CI pipeline:
+1. Sets up the PHP environment
+2. Installs dependencies via Composer
+3. Runs the PHPUnit test suite
+
+You can check the workflow configuration in the `.github/workflows/php-tests.yml` file.
+
+### Writing Your Own Tests
+
+You can use the existing test suite as a reference for writing your own tests. The SDK provides mock responses and helpers to make testing easier:
+
+```php
+use Groww\API\Tests\TestCase;
+use Groww\API\Client;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Client as HttpClient;
+
+class YourTest extends TestCase
+{
+    public function testYourMethod()
+    {
+        // Create a mock response
+        $mockResponse = $this->createSuccessResponse(['data' => 'value']);
+        
+        // Set up mock handler
+        $mock = new MockHandler([
+            new Response(200, [], json_encode($mockResponse))
+        ]);
+        
+        $handlerStack = HandlerStack::create($mock);
+        $httpClient = new HttpClient(['handler' => $handlerStack]);
+        
+        // Create client with mock
+        $client = new Client($this->getTestApiKey());
+        $client->setHttpClient($httpClient);
+        
+        // Test your code
+        $result = $client->get('/endpoint');
+        
+        // Assert results
+        $this->assertEquals($mockResponse, $result);
+    }
+}
+```
+
 ## API Documentation
 
 For the full API reference, visit the Groww API documentation at: [https://groww.in/trade-api/docs/curl](https://groww.in/trade-api/docs/curl)
 
 ## License
 
-MIT
+MIT 

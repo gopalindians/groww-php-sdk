@@ -108,7 +108,7 @@ class Client
      * @param callable|null $logger Custom logger function
      * @return self
      */
-    public function setLogging(bool $enable, callable $logger = null): self
+    public function setLogging(bool $enable, ?callable $logger = null): self
     {
         $this->enableLogging = $enable;
         $this->logger = $logger;
@@ -157,8 +157,8 @@ class Client
         return function (
             $retries,
             RequestInterface $request,
-            ResponseInterface $response = null,
-            \Exception $exception = null
+            ?ResponseInterface $response = null,
+            ?\Exception $exception = null
         ) {
             // Retry connection exceptions
             if ($retries >= $this->maxRetries) {
@@ -194,6 +194,18 @@ class Client
         return function ($numberOfRetries) {
             return 1000 * pow(2, $numberOfRetries - 1);
         };
+    }
+
+    /**
+     * Set a custom HTTP client (mainly for testing)
+     *
+     * @param HttpClient $client
+     * @return self
+     */
+    public function setHttpClient(HttpClient $client): self
+    {
+        $this->httpClient = $client;
+        return $this;
     }
 
     /**
@@ -267,13 +279,17 @@ class Client
                 'body' => $this->redactSensitiveData($body)
             ]);
 
-            if (isset($body['status']) && $body['status'] === 'FAILURE') {
-                // Check if it's a rate limit error
-                $errorCode = $body['error']['code'] ?? 'GA000';
-                $errorMessage = $body['error']['message'] ?? 'Unknown error';
+            // Check for error responses in different formats
+            if (isset($body['status']) && ($body['status'] === 'FAILURE' || $body['status'] === 'ERROR')) {
+                // Extract error information directly from response
+                $errorCode = $body['error_code'] ?? ($body['error']['code'] ?? 'GA000');
+                $errorMessage = $body['message'] ?? ($body['error']['message'] ?? 'Unknown error');
+                $waitTime = $body['rate_limit']['wait_time'] ?? ($body['error']['rate_limit']['wait_time'] ?? 60);
                 
-                if ($errorCode === 'GA003' && strpos($errorMessage, 'rate limit') !== false) {
-                    throw new GrowwRateLimitException($errorMessage, $errorCode);
+                // Check for rate limit errors
+                if (($errorCode === 'GA003' || $errorCode === 'RL001') &&
+                    (strpos($errorMessage, 'rate limit') !== false || $response->getStatusCode() === 429)) {
+                    throw new GrowwRateLimitException($errorMessage, $errorCode, $waitTime);
                 }
                 
                 throw new GrowwApiException($errorMessage, $errorCode);
@@ -284,6 +300,30 @@ class Client
             $this->log('warning', "Rate limit exceeded: " . $e->getMessage());
             throw $e;
         } catch (GuzzleException $e) {
+            // For HTTP 429 errors, convert to a rate limit exception
+            if ($e instanceof \GuzzleHttp\Exception\ClientException && $e->getResponse()->getStatusCode() === 429) {
+                $responseBody = json_decode((string) $e->getResponse()->getBody(), true);
+                $errorCode = $responseBody['error_code'] ?? 'RL001';
+                $errorMessage = $responseBody['message'] ?? 'Rate limit exceeded';
+                $waitTime = $responseBody['rate_limit']['wait_time'] ?? 60;
+                
+                throw new GrowwRateLimitException($errorMessage, $errorCode, $waitTime);
+            }
+            
+            // For other client errors, try to extract error details from the response
+            if ($e instanceof \GuzzleHttp\Exception\ClientException) {
+                try {
+                    $responseBody = json_decode((string) $e->getResponse()->getBody(), true);
+                    if (is_array($responseBody)) {
+                        $errorCode = $responseBody['error_code'] ?? 'GA000';
+                        $errorMessage = $responseBody['message'] ?? 'Request failed: ' . $e->getMessage();
+                        throw new GrowwApiException($errorMessage, $errorCode, $e);
+                    }
+                } catch (\Exception $jsonException) {
+                    // If we can't parse the body, fall back to default error
+                }
+            }
+            
             $this->log('error', "Request failed: " . $e->getMessage());
             throw new GrowwApiException('Request failed: ' . $e->getMessage(), 'GA000', $e);
         }

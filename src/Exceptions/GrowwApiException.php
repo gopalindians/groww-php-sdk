@@ -19,7 +19,7 @@ class GrowwApiException extends Exception
      * @param string $errorCode Error code from Groww API
      * @param Throwable|null $previous Previous exception
      */
-    public function __construct(string $message = "", string $errorCode = "GA000", Throwable $previous = null)
+    public function __construct(string $message = "", string $errorCode = "GA000", ?Throwable $previous = null)
     {
         $this->errorCode = $errorCode;
         parent::__construct($message, 0, $previous);
