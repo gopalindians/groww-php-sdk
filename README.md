@@ -6,7 +6,7 @@
 [![PHP Version](https://img.shields.io/packagist/php-v/gopalindians/groww-php-sdk.svg)](https://packagist.org/packages/gopalindians/groww-php-sdk)
 [![GitHub stars](https://img.shields.io/github/stars/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/issues)
-[![Tests](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php-tests.yml/badge.svg)](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php-tests.yml)
+[![Tests](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php.yml/badge.svg)](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php.yml)
 
 A PHP SDK for interacting with the Groww Trading API.
 
