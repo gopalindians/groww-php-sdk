@@ -2,99 +2,98 @@
 
 namespace Groww\API\Resources;
 
+use Groww\API\Constants;
 use Groww\API\Exceptions\GrowwApiException;
 
 class HistoricalData extends Resource
 {
     /**
-     * Get historical candle data
+     * GET /historical/candles
      *
-     * @param string $tradingSymbol Trading symbol
-     * @param string $interval Candle interval (e.g., 1d, 1h, 15m)
-     * @param string $from Start date (YYYY-MM-DD)
-     * @param string $to End date (YYYY-MM-DD)
-     * @param string $exchange Exchange (e.g., NSE, BSE)
-     * @return array Historical candle data
      * @throws GrowwApiException
      */
     public function candles(
-        string $tradingSymbol,
-        string $interval,
-        string $from,
-        string $to,
-        string $exchange = 'NSE'
+        string $exchange,
+        string $segment,
+        string $growwSymbol,
+        string $startTime,
+        string $endTime,
+        string $candleInterval
     ): array {
+        if (!in_array($exchange, Constants::EXCHANGES, true)) {
+            throw new \InvalidArgumentException('Invalid exchange: ' . $exchange);
+        }
+        if (!in_array($segment, Constants::SEGMENTS, true)) {
+            throw new \InvalidArgumentException('Invalid segment: ' . $segment);
+        }
+        if (!in_array($candleInterval, Constants::CANDLE_INTERVALS, true)) {
+            throw new \InvalidArgumentException(
+                'Invalid candle_interval. Valid values: ' . implode(', ', Constants::CANDLE_INTERVALS)
+            );
+        }
+        if ($growwSymbol === '' || $startTime === '' || $endTime === '') {
+            throw new \InvalidArgumentException('groww_symbol, start_time and end_time are required');
+        }
+
         $response = $this->client->get('/historical/candles', [
-            'trading_symbol' => $tradingSymbol,
-            'interval' => $interval,
-            'from' => $from,
-            'to' => $to,
-            'exchange' => $exchange
+            'exchange' => $exchange,
+            'segment' => $segment,
+            'groww_symbol' => $growwSymbol,
+            'start_time' => $startTime,
+            'end_time' => $endTime,
+            'candle_interval' => $candleInterval,
         ]);
-        
         return $this->extractPayload($response);
     }
 
     /**
-     * Get historical market data
+     * GET /historical/expiries
      *
-     * @param string $tradingSymbol Trading symbol
-     * @param string $date Date (YYYY-MM-DD)
-     * @param string $exchange Exchange (e.g., NSE, BSE)
-     * @return array Historical market data
      * @throws GrowwApiException
      */
-    public function marketData(
-        string $tradingSymbol,
-        string $date,
-        string $exchange = 'NSE'
-    ): array {
-        $response = $this->client->get('/historical/market', [
-            'trading_symbol' => $tradingSymbol,
-            'date' => $date,
-            'exchange' => $exchange
-        ]);
-        
-        return $this->extractPayload($response);
-    }
-
-    /**
-     * Get historical trade data
-     *
-     * @param string $tradingSymbol Trading symbol
-     * @param string $date Date (YYYY-MM-DD)
-     * @param string $exchange Exchange (e.g., NSE, BSE)
-     * @return array Historical trade data
-     * @throws GrowwApiException
-     */
-    public function trades(
-        string $tradingSymbol,
-        string $date,
-        string $exchange = 'NSE'
-    ): array {
-        $response = $this->client->get('/historical/trades', [
-            'trading_symbol' => $tradingSymbol,
-            'date' => $date,
-            'exchange' => $exchange
-        ]);
-        
-        return $this->extractPayload($response);
-    }
-
-    /**
-     * Get price history for analysis
-     *
-     * @param string $tradingSymbol Trading symbol
-     * @param array $params Additional parameters
-     * @return array Price history data
-     * @throws GrowwApiException
-     */
-    public function priceHistory(string $tradingSymbol, array $params = []): array
+    public function expiries(string $exchange, string $underlyingSymbol, ?int $year = null, ?int $month = null): array
     {
-        $response = $this->client->get('/historical/price', array_merge([
-            'trading_symbol' => $tradingSymbol
-        ], $params));
-        
+        if (!in_array($exchange, Constants::EXCHANGES, true)) {
+            throw new \InvalidArgumentException('Invalid exchange: ' . $exchange);
+        }
+        if ($underlyingSymbol === '') {
+            throw new \InvalidArgumentException('underlying_symbol cannot be empty');
+        }
+
+        $params = [
+            'exchange' => $exchange,
+            'underlying_symbol' => $underlyingSymbol,
+        ];
+        if ($year !== null) {
+            $params['year'] = $year;
+        }
+        if ($month !== null) {
+            $params['month'] = $month;
+        }
+
+        $response = $this->client->get('/historical/expiries', $params);
         return $this->extractPayload($response);
     }
-} 
+
+    /**
+     * GET /historical/contracts
+     *
+     * @throws GrowwApiException
+     */
+    public function contracts(string $exchange, string $underlyingSymbol, string $expiryDate): array
+    {
+        if (!in_array($exchange, Constants::EXCHANGES, true)) {
+            throw new \InvalidArgumentException('Invalid exchange: ' . $exchange);
+        }
+        if ($underlyingSymbol === '' || $expiryDate === '') {
+            throw new \InvalidArgumentException('underlying_symbol and expiry_date are required');
+        }
+
+        $response = $this->client->get('/historical/contracts', [
+            'exchange' => $exchange,
+            'underlying_symbol' => $underlyingSymbol,
+            'expiry_date' => $expiryDate,
+        ]);
+        return $this->extractPayload($response);
+    }
+}

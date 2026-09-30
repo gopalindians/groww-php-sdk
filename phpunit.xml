@@ -17,5 +17,6 @@
     <php>
         <env name="APP_ENV" value="testing"/>
         <env name="TEST_API_KEY" value="test_api_key"/>
+        <env name="TEST_ACCESS_TOKEN" value="test_access_token"/>
     </php>
 </phpunit> 

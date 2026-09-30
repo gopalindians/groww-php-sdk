@@ -2,40 +2,16 @@
 
 namespace Groww\API\Resources;
 
+use Groww\API\Constants;
 use Groww\API\Exceptions\GrowwApiException;
 
 class Orders extends Resource
 {
     /**
-     * List of valid order types
-     */
-    const ORDER_TYPES = ['MARKET', 'LIMIT', 'SL', 'SL-M'];
-    
-    /**
-     * List of valid transaction types
-     */
-    const TRANSACTION_TYPES = ['BUY', 'SELL'];
-    
-    /**
-     * List of valid product types
-     */
-    const PRODUCT_TYPES = ['CNC', 'MIS', 'NRML'];
-    
-    /**
-     * List of valid validity types
-     */
-    const VALIDITY_TYPES = ['DAY', 'IOC', 'GTC'];
-    
-    /**
-     * List of valid segments
-     */
-    const SEGMENTS = ['CASH', 'FNO', 'CURRENCY', 'COMMODITY'];
-
-    /**
-     * Create a new order
+     * Place an order.
      *
-     * @param array $orderData Order data
-     * @return array Created order details
+     * POST /order/create
+     *
      * @throws GrowwApiException
      */
     public function create(array $orderData): array
@@ -46,225 +22,262 @@ class Orders extends Resource
     }
 
     /**
-     * Get order details by Groww order ID
+     * GET /order/detail/{groww_order_id}
      *
-     * @param string $growwOrderId Groww order ID
-     * @param string $segment Market segment (e.g., CASH)
-     * @return array Order details
      * @throws GrowwApiException
      */
-    public function details(string $growwOrderId, string $segment = 'CASH'): array
+    public function details(string $growwOrderId, string $segment = Constants::SEGMENT_CASH): array
     {
-        if (empty($growwOrderId)) {
-            throw new \InvalidArgumentException('Order ID cannot be empty');
-        }
-        
+        $this->requireOrderId($growwOrderId);
         $this->validateSegment($segment);
-        
+
         $response = $this->client->get("/order/detail/{$growwOrderId}", [
-            'segment' => $segment
+            'segment' => $segment,
         ]);
         return $this->extractPayload($response);
     }
 
     /**
-     * Get all orders
+     * GET /order/list
      *
-     * @param array $params Optional filter parameters
-     * @return array Orders list
      * @throws GrowwApiException
      */
-    public function getAll(array $params = []): array
+    public function list(array $params = []): array
     {
-        $response = $this->client->get('/orders', $params);
+        if (isset($params['segment'])) {
+            $this->validateSegment($params['segment']);
+        }
+
+        $response = $this->client->get('/order/list', $params);
         return $this->extractPayload($response);
     }
 
     /**
-     * Cancel an order
+     * GET /order/status/{groww_order_id}
      *
-     * @param string $growwOrderId Groww order ID
-     * @param string $segment Market segment (e.g., CASH)
-     * @return array Cancellation result
      * @throws GrowwApiException
      */
-    public function cancel(string $growwOrderId, string $segment = 'CASH'): array
+    public function status(string $growwOrderId, string $segment = Constants::SEGMENT_CASH): array
     {
-        if (empty($growwOrderId)) {
-            throw new \InvalidArgumentException('Order ID cannot be empty');
-        }
-        
+        $this->requireOrderId($growwOrderId);
         $this->validateSegment($segment);
-        
+
+        $response = $this->client->get("/order/status/{$growwOrderId}", [
+            'segment' => $segment,
+        ]);
+        return $this->extractPayload($response);
+    }
+
+    /**
+     * GET /order/status/reference/{order_reference_id}
+     *
+     * @throws GrowwApiException
+     */
+    public function statusByReference(string $orderReferenceId, string $segment = Constants::SEGMENT_CASH): array
+    {
+        if ($orderReferenceId === '') {
+            throw new \InvalidArgumentException('Order reference ID cannot be empty');
+        }
+        $this->validateSegment($segment);
+
+        $response = $this->client->get("/order/status/reference/{$orderReferenceId}", [
+            'segment' => $segment,
+        ]);
+        return $this->extractPayload($response);
+    }
+
+    /**
+     * GET /order/trades/{groww_order_id}
+     *
+     * @throws GrowwApiException
+     */
+    public function trades(string $growwOrderId, string $segment = Constants::SEGMENT_CASH, array $params = []): array
+    {
+        $this->requireOrderId($growwOrderId);
+        $this->validateSegment($segment);
+
+        $response = $this->client->get("/order/trades/{$growwOrderId}", array_merge($params, [
+            'segment' => $segment,
+        ]));
+        return $this->extractPayload($response);
+    }
+
+    /**
+     * POST /order/cancel
+     *
+     * @throws GrowwApiException
+     */
+    public function cancel(string $growwOrderId, string $segment = Constants::SEGMENT_CASH): array
+    {
+        $this->requireOrderId($growwOrderId);
+        $this->validateSegment($segment);
+
         $response = $this->client->post('/order/cancel', [
             'groww_order_id' => $growwOrderId,
-            'segment' => $segment
+            'segment' => $segment,
         ]);
         return $this->extractPayload($response);
     }
 
     /**
-     * Modify an existing order
+     * POST /order/modify
      *
-     * @param string $growwOrderId Groww order ID
-     * @param array $modificationData Data to modify
-     * @return array Modified order details
      * @throws GrowwApiException
      */
     public function modify(string $growwOrderId, array $modificationData): array
     {
-        if (empty($growwOrderId)) {
-            throw new \InvalidArgumentException('Order ID cannot be empty');
+        $this->requireOrderId($growwOrderId);
+
+        if (empty($modificationData['segment'])) {
+            throw new \InvalidArgumentException('Missing required field: segment');
         }
-        
-        // Validate modify data
-        if (isset($modificationData['order_type'])) {
-            $this->validateOrderType($modificationData['order_type']);
+        if (empty($modificationData['order_type'])) {
+            throw new \InvalidArgumentException('Missing required field: order_type');
         }
-        
+
+        $this->validateSegment($modificationData['segment']);
+        $this->validateOrderType($modificationData['order_type']);
+
         if (isset($modificationData['price'])) {
             $this->validatePrice($modificationData['price']);
         }
-        
         if (isset($modificationData['quantity'])) {
             $this->validateQuantity($modificationData['quantity']);
         }
-        
         if (isset($modificationData['trigger_price'])) {
             $this->validatePrice($modificationData['trigger_price'], 'trigger_price');
         }
-        
+
         $data = array_merge(['groww_order_id' => $growwOrderId], $modificationData);
         $response = $this->client->post('/order/modify', $data);
         return $this->extractPayload($response);
     }
-    
-    /**
-     * Validate order data
-     *
-     * @param array $orderData
-     * @throws \InvalidArgumentException
-     */
+
+    protected function requireOrderId(string $growwOrderId): void
+    {
+        if ($growwOrderId === '') {
+            throw new \InvalidArgumentException('Order ID cannot be empty');
+        }
+    }
+
     protected function validateOrderData(array $orderData): void
     {
-        // Required fields
         $requiredFields = [
-            'trading_symbol', 'exchange', 'transaction_type',
-            'order_type', 'quantity', 'product', 'validity', 'segment'
+            'trading_symbol',
+            'exchange',
+            'transaction_type',
+            'order_type',
+            'quantity',
+            'product',
+            'validity',
+            'segment',
+            'order_reference_id',
         ];
-        
+
         foreach ($requiredFields as $field) {
-            if (!isset($orderData[$field]) || empty($orderData[$field])) {
+            if (!isset($orderData[$field]) || $orderData[$field] === '' || $orderData[$field] === null) {
                 throw new \InvalidArgumentException("Missing required field: {$field}");
             }
         }
-        
-        // Validate field values
+
         $this->validateOrderType($orderData['order_type']);
         $this->validateTransactionType($orderData['transaction_type']);
         $this->validateProduct($orderData['product']);
         $this->validateValidity($orderData['validity']);
         $this->validateSegment($orderData['segment']);
+        $this->validateExchange($orderData['exchange']);
         $this->validateQuantity($orderData['quantity']);
-        
-        // Validate price for limit orders
-        if ($orderData['order_type'] === 'LIMIT' || $orderData['order_type'] === 'SL') {
+        $this->validateOrderReferenceId($orderData['order_reference_id']);
+
+        if ($orderData['order_type'] === Constants::ORDER_TYPE_LIMIT || $orderData['order_type'] === Constants::ORDER_TYPE_SL) {
             if (!isset($orderData['price'])) {
-                throw new \InvalidArgumentException("Price is required for LIMIT and SL order types");
+                throw new \InvalidArgumentException('Price is required for LIMIT and SL order types');
             }
             $this->validatePrice($orderData['price']);
         }
-        
-        // Validate trigger price for stop loss orders
-        if ($orderData['order_type'] === 'SL' || $orderData['order_type'] === 'SL-M') {
+
+        if ($orderData['order_type'] === Constants::ORDER_TYPE_SL || $orderData['order_type'] === Constants::ORDER_TYPE_SL_M) {
             if (!isset($orderData['trigger_price'])) {
-                throw new \InvalidArgumentException("Trigger price is required for SL and SL-M order types");
+                throw new \InvalidArgumentException('Trigger price is required for SL and SL_M order types');
             }
             $this->validatePrice($orderData['trigger_price'], 'trigger_price');
         }
     }
-    
-    /**
-     * Validate order type
-     *
-     * @param string $orderType
-     * @throws \InvalidArgumentException
-     */
+
+    protected function validateOrderReferenceId(string $orderReferenceId): void
+    {
+        $hyphens = substr_count($orderReferenceId, '-');
+        $length = strlen($orderReferenceId);
+
+        if ($length < 8 || $length > 20) {
+            throw new \InvalidArgumentException('order_reference_id must be 8 to 20 characters');
+        }
+
+        if ($hyphens > 2) {
+            throw new \InvalidArgumentException('order_reference_id may contain at most two hyphens');
+        }
+
+        if (!preg_match('/^[A-Za-z0-9-]+$/', $orderReferenceId)) {
+            throw new \InvalidArgumentException('order_reference_id must be alphanumeric with at most two hyphens');
+        }
+    }
+
     protected function validateOrderType(string $orderType): void
     {
-        if (!in_array($orderType, self::ORDER_TYPES)) {
+        if (!in_array($orderType, Constants::ORDER_TYPES, true)) {
             throw new \InvalidArgumentException(
-                "Invalid order type: {$orderType}. Valid types: " . implode(', ', self::ORDER_TYPES)
+                'Invalid order type: ' . $orderType . '. Valid types: ' . implode(', ', Constants::ORDER_TYPES)
             );
         }
     }
-    
-    /**
-     * Validate transaction type
-     *
-     * @param string $transactionType
-     * @throws \InvalidArgumentException
-     */
+
     protected function validateTransactionType(string $transactionType): void
     {
-        if (!in_array($transactionType, self::TRANSACTION_TYPES)) {
+        if (!in_array($transactionType, Constants::TRANSACTION_TYPES, true)) {
             throw new \InvalidArgumentException(
-                "Invalid transaction type: {$transactionType}. Valid types: " . implode(', ', self::TRANSACTION_TYPES)
+                'Invalid transaction type: ' . $transactionType . '. Valid types: ' . implode(', ', Constants::TRANSACTION_TYPES)
             );
         }
     }
-    
-    /**
-     * Validate product type
-     *
-     * @param string $product
-     * @throws \InvalidArgumentException
-     */
+
     protected function validateProduct(string $product): void
     {
-        if (!in_array($product, self::PRODUCT_TYPES)) {
+        if (!in_array($product, Constants::PRODUCTS, true)) {
             throw new \InvalidArgumentException(
-                "Invalid product: {$product}. Valid products: " . implode(', ', self::PRODUCT_TYPES)
+                'Invalid product: ' . $product . '. Valid products: ' . implode(', ', Constants::PRODUCTS)
             );
         }
     }
-    
-    /**
-     * Validate validity type
-     *
-     * @param string $validity
-     * @throws \InvalidArgumentException
-     */
+
     protected function validateValidity(string $validity): void
     {
-        if (!in_array($validity, self::VALIDITY_TYPES)) {
+        if (!in_array($validity, Constants::VALIDITIES, true)) {
             throw new \InvalidArgumentException(
-                "Invalid validity: {$validity}. Valid types: " . implode(', ', self::VALIDITY_TYPES)
+                'Invalid validity: ' . $validity . '. Valid types: ' . implode(', ', Constants::VALIDITIES)
             );
         }
     }
-    
-    /**
-     * Validate segment
-     *
-     * @param string $segment
-     * @throws \InvalidArgumentException
-     */
+
     protected function validateSegment(string $segment): void
     {
-        if (!in_array($segment, self::SEGMENTS)) {
+        if (!in_array($segment, Constants::SEGMENTS, true)) {
             throw new \InvalidArgumentException(
-                "Invalid segment: {$segment}. Valid segments: " . implode(', ', self::SEGMENTS)
+                'Invalid segment: ' . $segment . '. Valid segments: ' . implode(', ', Constants::SEGMENTS)
             );
         }
     }
-    
+
+    protected function validateExchange(string $exchange): void
+    {
+        if (!in_array($exchange, Constants::EXCHANGES, true)) {
+            throw new \InvalidArgumentException(
+                'Invalid exchange: ' . $exchange . '. Valid exchanges: ' . implode(', ', Constants::EXCHANGES)
+            );
+        }
+    }
+
     /**
-     * Validate price
-     *
      * @param mixed $price
-     * @param string $fieldName
-     * @throws \InvalidArgumentException
      */
     protected function validatePrice($price, string $fieldName = 'price'): void
     {
@@ -272,17 +285,14 @@ class Orders extends Resource
             throw new \InvalidArgumentException("{$fieldName} must be a non-negative number");
         }
     }
-    
+
     /**
-     * Validate quantity
-     *
      * @param mixed $quantity
-     * @throws \InvalidArgumentException
      */
     protected function validateQuantity($quantity): void
     {
-        if (!is_numeric($quantity) || $quantity <= 0 || floor($quantity) != $quantity) {
-            throw new \InvalidArgumentException("Quantity must be a positive integer");
+        if (!is_numeric($quantity) || $quantity <= 0 || floor((float) $quantity) != $quantity) {
+            throw new \InvalidArgumentException('Quantity must be a positive integer');
         }
     }
-} 
+}

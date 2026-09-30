@@ -2,82 +2,49 @@
 
 namespace Groww\API\Resources;
 
+use Groww\API\Constants;
 use Groww\API\Exceptions\GrowwApiException;
 
 class Instruments extends Resource
 {
     /**
-     * Search for instruments
+     * Download the instruments CSV and parse it into associative rows.
      *
-     * @param string $query Search query
-     * @param array $params Additional search parameters
-     * @return array Search results
+     * @return array<int, array<string, string>>
      * @throws GrowwApiException
      */
-    public function search(string $query, array $params = []): array
+    public function download(): array
     {
-        $response = $this->client->get('/instruments/search', array_merge([
-            'q' => $query
-        ], $params));
-        
-        return $this->extractPayload($response);
+        $csv = $this->client->getRaw(Constants::INSTRUMENTS_CSV_URL);
+        return $this->parseCsv($csv);
     }
 
     /**
-     * Get instrument details
-     *
-     * @param string $tradingSymbol Trading symbol of the instrument
-     * @param string $exchange Exchange (e.g., NSE, BSE)
-     * @return array Instrument details
-     * @throws GrowwApiException
+     * @return array<int, array<string, string>>
      */
-    public function details(string $tradingSymbol, string $exchange = 'NSE'): array
+    public function parseCsv(string $csv): array
     {
-        $response = $this->client->get('/instruments/detail', [
-            'trading_symbol' => $tradingSymbol,
-            'exchange' => $exchange
-        ]);
-        
-        return $this->extractPayload($response);
-    }
+        $lines = preg_split("/\r\n|\n|\r/", trim($csv));
+        if ($lines === false || $lines === []) {
+            return [];
+        }
 
-    /**
-     * Get instrument details by ISIN
-     *
-     * @param string $isin ISIN code of the instrument
-     * @return array Instrument details
-     * @throws GrowwApiException
-     */
-    public function detailsByIsin(string $isin): array
-    {
-        $response = $this->client->get('/instruments/detail/isin', [
-            'isin' => $isin
-        ]);
-        
-        return $this->extractPayload($response);
-    }
+        $headerLine = array_shift($lines);
+        $headers = str_getcsv($headerLine);
+        $rows = [];
 
-    /**
-     * Get all available exchanges
-     *
-     * @return array List of exchanges
-     * @throws GrowwApiException
-     */
-    public function exchanges(): array
-    {
-        $response = $this->client->get('/instruments/exchanges');
-        return $this->extractPayload($response);
-    }
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $values = str_getcsv($line);
+            $row = [];
+            foreach ($headers as $index => $header) {
+                $row[$header] = $values[$index] ?? '';
+            }
+            $rows[] = $row;
+        }
 
-    /**
-     * Get all available segments
-     *
-     * @return array List of segments
-     * @throws GrowwApiException
-     */
-    public function segments(): array
-    {
-        $response = $this->client->get('/instruments/segments');
-        return $this->extractPayload($response);
+        return $rows;
     }
-} 
+}

@@ -3,6 +3,7 @@
 namespace Groww\API\Tests\Unit\Resources;
 
 use Groww\API\Client;
+use Groww\API\Constants;
 use Groww\API\Resources\Orders;
 use Groww\API\Tests\TestCase;
 
@@ -21,213 +22,189 @@ class OrdersTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->client = $this->getMockBuilder(Client::class)
             ->disableOriginalConstructor()
             ->getMock();
-            
+
         $this->orders = new Orders($this->client);
     }
 
-    /**
-     * Test creating an order.
-     */
+    protected function validOrderData(): array
+    {
+        return [
+            'validity' => Constants::VALIDITY_DAY,
+            'exchange' => Constants::EXCHANGE_NSE,
+            'transaction_type' => Constants::TRANSACTION_BUY,
+            'order_type' => Constants::ORDER_TYPE_MARKET,
+            'price' => 0,
+            'product' => Constants::PRODUCT_CNC,
+            'quantity' => 1,
+            'segment' => Constants::SEGMENT_CASH,
+            'trading_symbol' => 'IDEA',
+            'order_reference_id' => 'Ab-654321234',
+        ];
+    }
+
     public function testCreateOrder()
     {
-        $orderData = [
-            'validity' => 'DAY',
-            'exchange' => 'NSE',
-            'transaction_type' => 'BUY',
-            'order_type' => 'MARKET',
-            'price' => 0,
-            'product' => 'CNC',
-            'quantity' => 1,
-            'segment' => 'CASH',
-            'trading_symbol' => 'IDEA'
-        ];
-        
-        $expectedResponse = ['order_id' => 'GMK39038RDT490CCVRO'];
-        $apiResponse = $this->createSuccessResponse($expectedResponse);
-        
+        $orderData = $this->validOrderData();
+        $expected = ['groww_order_id' => 'GMK39038RDT490CCVRO', 'order_status' => 'OPEN'];
+        $apiResponse = $this->createSuccessResponse($expected);
+
         $this->client->expects($this->once())
             ->method('post')
             ->with('/order/create', $orderData)
             ->willReturn($apiResponse);
-            
-        $result = $this->orders->create($orderData);
-        
-        $this->assertEquals($expectedResponse, $result);
+
+        $this->assertEquals($expected, $this->orders->create($orderData));
     }
 
-    /**
-     * Test order creation validation with missing fields.
-     */
+    public function testCreateOrderRequiresReferenceId()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Missing required field: order_reference_id');
+
+        $data = $this->validOrderData();
+        unset($data['order_reference_id']);
+        $this->orders->create($data);
+    }
+
+    public function testCreateOrderRejectsSlMHyphen()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid order type');
+
+        $data = $this->validOrderData();
+        $data['order_type'] = 'SL-M';
+        $this->orders->create($data);
+    }
+
     public function testCreateOrderValidationMissingFields()
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Missing required field');
-        
-        $incompleteOrderData = [
-            'exchange' => 'NSE',
-            'transaction_type' => 'BUY',
-            // Missing other required fields
-        ];
-        
-        $this->orders->create($incompleteOrderData);
+        $this->orders->create(['exchange' => 'NSE']);
     }
 
-    /**
-     * Test order creation validation with invalid order type.
-     */
     public function testCreateOrderValidationInvalidOrderType()
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid order type');
-        
-        $orderData = [
-            'validity' => 'DAY',
-            'exchange' => 'NSE',
-            'transaction_type' => 'BUY',
-            'order_type' => 'INVALID_TYPE', // Invalid order type
-            'price' => 0,
-            'product' => 'CNC',
-            'quantity' => 1,
-            'segment' => 'CASH',
-            'trading_symbol' => 'IDEA'
-        ];
-        
-        $this->orders->create($orderData);
+
+        $data = $this->validOrderData();
+        $data['order_type'] = 'INVALID_TYPE';
+        $this->orders->create($data);
     }
 
-    /**
-     * Test getting order details.
-     */
     public function testGetOrderDetails()
     {
         $orderId = 'GMK39038RDT490CCVRO';
-        $segment = 'CASH';
-        
-        $expectedResponse = [
-            'groww_order_id' => $orderId,
-            'trading_symbol' => 'IDEA-EQ',
-            'status' => 'COMPLETE',
-            'quantity' => 1
-        ];
-        
-        $apiResponse = $this->createSuccessResponse($expectedResponse);
-        
+        $expected = ['groww_order_id' => $orderId, 'trading_symbol' => 'IDEA'];
+        $apiResponse = $this->createSuccessResponse($expected);
+
         $this->client->expects($this->once())
             ->method('get')
-            ->with("/order/detail/{$orderId}", ['segment' => $segment])
+            ->with("/order/detail/{$orderId}", ['segment' => 'CASH'])
             ->willReturn($apiResponse);
-            
-        $result = $this->orders->details($orderId, $segment);
-        
-        $this->assertEquals($expectedResponse, $result);
+
+        $this->assertEquals($expected, $this->orders->details($orderId, 'CASH'));
     }
 
-    /**
-     * Test getting order details with empty order ID.
-     */
     public function testGetOrderDetailsEmptyOrderId()
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Order ID cannot be empty');
-        
         $this->orders->details('');
     }
 
-    /**
-     * Test cancelling an order.
-     */
     public function testCancelOrder()
     {
         $orderId = 'GMK39038RDT490CCVRO';
-        $segment = 'CASH';
-        
-        $expectedResponse = ['status' => 'SUCCESS'];
-        $apiResponse = $this->createSuccessResponse($expectedResponse);
-        
+        $expected = ['groww_order_id' => $orderId, 'order_status' => 'CANCELLED'];
+        $apiResponse = $this->createSuccessResponse($expected);
+
         $this->client->expects($this->once())
             ->method('post')
             ->with('/order/cancel', [
                 'groww_order_id' => $orderId,
-                'segment' => $segment
+                'segment' => 'CASH',
             ])
             ->willReturn($apiResponse);
-            
-        $result = $this->orders->cancel($orderId, $segment);
-        
-        $this->assertEquals($expectedResponse, $result);
+
+        $this->assertEquals($expected, $this->orders->cancel($orderId, 'CASH'));
     }
 
-    /**
-     * Test modifying an order.
-     */
     public function testModifyOrder()
     {
         $orderId = 'GMK39038RDT490CCVRO';
         $modificationData = [
             'quantity' => 2,
-            'price' => 100
+            'price' => 100,
+            'order_type' => Constants::ORDER_TYPE_SL,
+            'segment' => Constants::SEGMENT_CASH,
+            'trigger_price' => 95,
         ];
-        
-        $expectedResponse = ['status' => 'SUCCESS'];
-        $apiResponse = $this->createSuccessResponse($expectedResponse);
-        
+        $expected = ['groww_order_id' => $orderId, 'order_status' => 'OPEN'];
+        $apiResponse = $this->createSuccessResponse($expected);
+
         $this->client->expects($this->once())
             ->method('post')
             ->with('/order/modify', array_merge(['groww_order_id' => $orderId], $modificationData))
             ->willReturn($apiResponse);
-            
-        $result = $this->orders->modify($orderId, $modificationData);
-        
-        $this->assertEquals($expectedResponse, $result);
+
+        $this->assertEquals($expected, $this->orders->modify($orderId, $modificationData));
     }
 
-    /**
-     * Test modifying an order with invalid price.
-     */
+    public function testModifyOrderRequiresSegmentAndOrderType()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Missing required field: segment');
+        $this->orders->modify('GMK39038RDT490CCVRO', ['quantity' => 2]);
+    }
+
     public function testModifyOrderInvalidPrice()
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('price must be a non-negative number');
-        
-        $orderId = 'GMK39038RDT490CCVRO';
-        $modificationData = [
-            'quantity' => 2,
-            'price' => -100 // Negative price
-        ];
-        
-        $this->orders->modify($orderId, $modificationData);
+
+        $this->orders->modify('GMK39038RDT490CCVRO', [
+            'segment' => 'CASH',
+            'order_type' => 'LIMIT',
+            'price' => -100,
+        ]);
     }
 
-    /**
-     * Test getting all orders.
-     */
-    public function testGetAllOrders()
+    public function testListOrders()
     {
-        $params = ['status' => 'OPEN'];
-        
-        $expectedResponse = [
-            'orders' => [
-                [
-                    'groww_order_id' => 'GMK39038RDT490CCVRO',
-                    'trading_symbol' => 'IDEA-EQ',
-                    'status' => 'OPEN'
-                ]
-            ]
-        ];
-        
-        $apiResponse = $this->createSuccessResponse($expectedResponse);
-        
+        $params = ['segment' => 'CASH', 'page' => 0, 'page_size' => 100];
+        $expected = ['order_list' => [['groww_order_id' => 'GMK39038RDT490CCVRO']]];
+        $apiResponse = $this->createSuccessResponse($expected);
+
         $this->client->expects($this->once())
             ->method('get')
-            ->with('/orders', $params)
+            ->with('/order/list', $params)
             ->willReturn($apiResponse);
-            
-        $result = $this->orders->getAll($params);
-        
-        $this->assertEquals($expectedResponse, $result);
+
+        $this->assertEquals($expected, $this->orders->list($params));
     }
-} 
+
+    public function testStatusAndTradesAndReference()
+    {
+        $orderId = 'GMK39038RDT490CCVRO';
+        $payload = $this->createSuccessResponse(['groww_order_id' => $orderId, 'order_status' => 'OPEN']);
+
+        $this->client->expects($this->exactly(3))
+            ->method('get')
+            ->withConsecutive(
+                ["/order/status/{$orderId}", ['segment' => 'CASH']],
+                ['/order/status/reference/Ab-654321', ['segment' => 'CASH']],
+                ["/order/trades/{$orderId}", ['page' => 0, 'segment' => 'CASH']]
+            )
+            ->willReturn($payload);
+
+        $this->orders->status($orderId);
+        $this->orders->statusByReference('Ab-654321');
+        $this->orders->trades($orderId, 'CASH', ['page' => 0]);
+    }
+}

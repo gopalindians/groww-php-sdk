@@ -7,8 +7,6 @@ use PHPUnit\Framework\TestCase as BaseTestCase;
 class TestCase extends BaseTestCase
 {
     /**
-     * Create a mock for the given class.
-     *
      * @param string $class
      * @return \PHPUnit\Framework\MockObject\MockObject
      */
@@ -19,43 +17,36 @@ class TestCase extends BaseTestCase
             ->getMock();
     }
 
+    protected function getTestAccessToken(): string
+    {
+        return $_ENV['TEST_ACCESS_TOKEN'] ?? 'test_access_token';
+    }
+
     /**
-     * Get a test API key for testing.
-     *
-     * @return string
+     * @deprecated Use getTestAccessToken()
      */
     protected function getTestApiKey(): string
     {
-        return $_ENV['TEST_API_KEY'] ?? 'test_api_key';
+        return $this->getTestAccessToken();
     }
 
-    /**
-     * Create a standard success response.
-     *
-     * @param array $data
-     * @return array
-     */
-    protected function createSuccessResponse(array $data): array
+    protected function createSuccessResponse(array $payload): array
     {
         return [
             'status' => 'SUCCESS',
-            'data' => $data
+            'payload' => $payload,
         ];
     }
 
-    /**
-     * Create a standard error response.
-     *
-     * @param string $message
-     * @param string $errorCode
-     * @return array
-     */
-    protected function createErrorResponse(string $message, string $errorCode): array
+    protected function createFailureResponse(string $message, string $errorCode = 'GA001'): array
     {
         return [
-            'status' => 'ERROR',
-            'message' => $message,
-            'error_code' => $errorCode
+            'status' => 'FAILURE',
+            'error' => [
+                'code' => $errorCode,
+                'message' => $message,
+                'metadata' => null,
+            ],
         ];
     }
-} 
+}

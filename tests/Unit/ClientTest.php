@@ -3,212 +3,240 @@
 namespace Groww\API\Tests\Unit;
 
 use Groww\API\Client;
-use Groww\API\Tests\TestCase;
-use GuzzleHttp\Client as HttpClient;
-use GuzzleHttp\Handler\MockHandler;
-use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Psr7\Response;
-use GuzzleHttp\Exception\RequestException;
-use GuzzleHttp\Psr7\Request;
+use Groww\API\Constants;
 use Groww\API\Exceptions\GrowwApiException;
 use Groww\API\Exceptions\GrowwRateLimitException;
+use Groww\API\Resources\HistoricalData;
+use Groww\API\Resources\Instruments;
+use Groww\API\Resources\LiveData;
+use Groww\API\Resources\Margin;
+use Groww\API\Resources\Orders;
+use Groww\API\Resources\Portfolio;
+use Groww\API\Resources\SmartOrders;
+use Groww\API\Resources\User;
+use Groww\API\Tests\TestCase;
+use GuzzleHttp\Client as HttpClient;
+use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 
 class ClientTest extends TestCase
 {
     protected $client;
-    
+
     protected function setUp(): void
     {
         parent::setUp();
-        $this->client = new Client($this->getTestApiKey());
+        $this->client = new Client($this->getTestAccessToken());
     }
-    
+
     public function testClientInitializes()
     {
         $this->assertInstanceOf(Client::class, $this->client);
+        $this->assertEquals($this->getTestAccessToken(), $this->client->getAccessToken());
     }
-    
-    public function testRequestMethodWithGetRequest()
+
+    public function testEmptyAccessTokenThrows()
     {
-        $mockResponse = $this->createSuccessResponse(['data' => 'test_data']);
-        
-        // Create a mock
-        $mock = new MockHandler([
-            new Response(200, [], json_encode($mockResponse))
-        ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
-        $this->client->setHttpClient($httpClient);
-        
-        // Test the request method
-        $result = $this->client->get('/test-endpoint');
-        
-        $this->assertEquals($mockResponse, $result);
+        $this->expectException(\InvalidArgumentException::class);
+        new Client('');
     }
-    
-    public function testRequestMethodWithPostRequest()
+
+    public function testGenerateChecksum()
     {
-        $mockResponse = $this->createSuccessResponse(['data' => 'posted_data']);
-        $postData = ['key' => 'value'];
-        
-        // Create a mock
-        $mock = new MockHandler([
-            new Response(200, [], json_encode($mockResponse))
-        ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
-        $this->client->setHttpClient($httpClient);
-        
-        // Test the request method
-        $result = $this->client->post('/test-endpoint', $postData);
-        
-        $this->assertEquals($mockResponse, $result);
+        $checksum = Client::generateChecksum('secret', '1719830400');
+        $this->assertEquals(hash('sha256', 'secret1719830400'), $checksum);
+        $this->assertEquals(64, strlen($checksum));
     }
-    
-    public function testApiError()
+
+    public function testFromApproval()
     {
-        $errorMessage = "Invalid API key";
-        $errorCode = "GA005";
-        $errorResponse = [
-            'status' => 'ERROR',
-            'message' => $errorMessage,
-            'error_code' => $errorCode
+        $tokenResponse = [
+            'token' => 'access-token-abc',
+            'tokenRefId' => 'ref-123',
+            'sessionName' => 'my-session',
+            'expiry' => '2024-07-01T12:34:56',
+            'isActive' => true,
         ];
-        
-        // Create a mock with error response
-        $request = new Request('GET', '/test-endpoint');
-        $response = new Response(401, [], json_encode($errorResponse));
-        $exception = new RequestException('Client error', $request, $response);
-        
+
+        $container = [];
+        $history = Middleware::history($container);
         $mock = new MockHandler([
-            $exception
+            new Response(200, [], json_encode($tokenResponse)),
         ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
+        $stack = HandlerStack::create($mock);
+        $stack->push($history);
+        $tokenClient = new HttpClient(['handler' => $stack]);
+
+        $client = Client::fromApproval('user-api-key', 'user-secret', [], $tokenClient);
+
+        $this->assertEquals('access-token-abc', $client->getAccessToken());
+        $this->assertEquals('ref-123', $client->getTokenRefId());
+        $this->assertEquals('my-session', $client->getSessionName());
+        $this->assertEquals('2024-07-01T12:34:56', $client->getExpiry());
+        $this->assertTrue($client->isActive());
+
+        $this->assertCount(1, $container);
+        $request = $container[0]['request'];
+        $this->assertEquals('POST', $request->getMethod());
+        $this->assertEquals('/token/api/access', $request->getUri()->getPath());
+        $this->assertEquals('Bearer user-api-key', $request->getHeaderLine('Authorization'));
+        $body = json_decode((string) $request->getBody(), true);
+        $this->assertEquals('approval', $body['key_type']);
+        $this->assertEquals(Client::generateChecksum('user-secret', $body['timestamp']), $body['checksum']);
+        $this->assertMatchesRegularExpression('/^\d{10}$/', $body['timestamp']);
+    }
+
+    public function testFromTotp()
+    {
+        $mock = new MockHandler([
+            new Response(200, [], json_encode(['token' => 'totp-token', 'isActive' => true])),
+        ]);
+        $stack = HandlerStack::create($mock);
+        $tokenClient = new HttpClient(['handler' => $stack]);
+
+        $client = Client::fromTotp('user-api-key', '123456', [], $tokenClient);
+
+        $this->assertEquals('totp-token', $client->getAccessToken());
+        $this->assertTrue($client->isActive());
+    }
+
+    public function testGetAndPostAndPut()
+    {
+        $success = $this->createSuccessResponse(['ok' => true]);
+        $container = [];
+        $history = Middleware::history($container);
+        $mock = new MockHandler([
+            new Response(200, [], json_encode($success)),
+            new Response(200, [], json_encode($success)),
+            new Response(200, [], json_encode($success)),
+        ]);
+        $stack = HandlerStack::create($mock);
+        $stack->push($history);
+        $httpClient = new HttpClient(['handler' => $stack]);
         $this->client->setHttpClient($httpClient);
-        
-        // Test the exception is thrown with correct details
-        $this->expectException(GrowwApiException::class);
-        $this->expectExceptionMessage("Request failed:");
-        
+
+        $this->assertEquals($success, $this->client->get('/order/list', ['segment' => 'CASH']));
+        $this->assertEquals($success, $this->client->post('/order/create', ['trading_symbol' => 'IDEA']));
+        $this->assertEquals($success, $this->client->put('/order-advance/modify/gtt_1', ['quantity' => 1]));
+
+        $this->assertEquals('GET', $container[0]['request']->getMethod());
+        $this->assertEquals('POST', $container[1]['request']->getMethod());
+        $this->assertEquals('PUT', $container[2]['request']->getMethod());
+    }
+
+    public function testPostJsonArrayWithQuery()
+    {
+        $success = $this->createSuccessResponse(['total_requirement' => 100]);
+        $container = [];
+        $history = Middleware::history($container);
+        $mock = new MockHandler([new Response(200, [], json_encode($success))]);
+        $stack = HandlerStack::create($mock);
+        $stack->push($history);
+        $this->client->setHttpClient(new HttpClient(['handler' => $stack]));
+
+        $orders = [
+            ['trading_symbol' => 'WIPRO', 'transaction_type' => 'BUY', 'quantity' => 1],
+        ];
+        $this->client->post('/margins/detail/orders', $orders, ['segment' => 'CASH']);
+
+        $request = $container[0]['request'];
+        $this->assertEquals('segment=CASH', $request->getUri()->getQuery());
+        $this->assertEquals($orders, json_decode((string) $request->getBody(), true));
+    }
+
+    public function testFailureBodyOnHttp200()
+    {
+        $mock = new MockHandler([
+            new Response(200, [], json_encode($this->createFailureResponse('Invalid trading symbol.', 'GA001'))),
+        ]);
+        $this->client->setHttpClient(new HttpClient(['handler' => HandlerStack::create($mock)]));
+
         try {
-            $this->client->get('/test-endpoint');
+            $this->client->get('/order/list');
+            $this->fail('Expected GrowwApiException');
         } catch (GrowwApiException $e) {
-            // Don't check exact error code, it's coming from an exception and may vary
-            $this->assertStringContainsString('Client error', $e->getMessage());
-            throw $e;
+            $this->assertEquals('GA001', $e->getErrorCode());
+            $this->assertEquals('Invalid trading symbol.', $e->getMessage());
         }
     }
-    
+
+    public function testFailureOnHttp4xx()
+    {
+        $mock = new MockHandler([
+            new Response(400, [], json_encode($this->createFailureResponse('Bad request', 'GA001'))),
+        ]);
+        $this->client->setHttpClient(new HttpClient(['handler' => HandlerStack::create($mock)]));
+
+        $this->expectException(GrowwApiException::class);
+        $this->expectExceptionMessage('Bad request');
+        $this->client->get('/order/list');
+    }
+
     public function testRateLimitException()
     {
-        $errorMessage = "Rate limit exceeded";
-        $errorCode = "RL001";
-        $waitTime = 60;
-        $errorResponse = [
-            'status' => 'ERROR',
-            'message' => $errorMessage,
-            'error_code' => $errorCode,
-            'rate_limit' => [
-                'wait_time' => $waitTime
-            ]
-        ];
-        
-        // Create a mock with rate limit response
+        $errorResponse = $this->createFailureResponse('Unable to serve request currently', 'GA003');
+
         $mock = new MockHandler([
-            new Response(429, [], json_encode($errorResponse))
+            new Response(429, [], json_encode($errorResponse)),
         ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
-        $this->client->setHttpClient($httpClient);
-        
-        // Test the rate limit exception is thrown
-        $this->expectException(GrowwRateLimitException::class);
-        $this->expectExceptionMessage($errorMessage);
-        
+        $this->client->setHttpClient(new HttpClient(['handler' => HandlerStack::create($mock)]));
+
         try {
-            $this->client->get('/test-endpoint');
+            $this->client->get('/order/list');
+            $this->fail('Expected GrowwRateLimitException');
         } catch (GrowwRateLimitException $e) {
-            $this->assertEquals($errorCode, $e->getErrorCode());
-            $this->assertEquals($waitTime, $e->getWaitTime());
-            throw $e;
+            $this->assertEquals('GA003', $e->getErrorCode());
         }
     }
-    
+
     public function testNetworkError()
     {
-        // Create a mock with network error
-        $request = new Request('GET', '/test-endpoint');
+        $request = new Request('GET', '/order/list');
         $mock = new MockHandler([
-            new RequestException('Network error', $request)
+            new RequestException('Network error', $request),
         ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
-        $this->client->setHttpClient($httpClient);
-        
-        // Test that network errors are converted to GrowwApiException
+        $this->client->setHttpClient(new HttpClient(['handler' => HandlerStack::create($mock)]));
+
         $this->expectException(GrowwApiException::class);
         $this->expectExceptionMessage('Network error');
-        
-        $this->client->get('/test-endpoint');
+        $this->client->get('/order/list');
     }
-    
+
     public function testSetLogging()
     {
         $logCalled = false;
-        $logMessage = null;
-        
-        $logger = function($level, $message, $context) use (&$logCalled, &$logMessage) {
+        $this->client->setLogging(true, function ($level, $message, $context) use (&$logCalled) {
             $logCalled = true;
-            $logMessage = $message;
-        };
-        
-        $this->client->setLogging(true, $logger);
-        
-        $mockResponse = $this->createSuccessResponse(['data' => 'test_data']);
-        
-        // Create a mock
+        });
+
         $mock = new MockHandler([
-            new Response(200, [], json_encode($mockResponse))
+            new Response(200, [], json_encode($this->createSuccessResponse(['ok' => true]))),
         ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Set the mock client
-        $this->client->setHttpClient($httpClient);
-        
-        // Make a request
-        $this->client->get('/test-endpoint');
-        
-        // Check that logging was called
+        $this->client->setHttpClient(new HttpClient(['handler' => HandlerStack::create($mock)]));
+        $this->client->get('/user/detail');
+
         $this->assertTrue($logCalled);
-        $this->assertNotNull($logMessage);
     }
-    
+
     public function testResourceAccessMethods()
     {
-        // Test that resource accessor methods return the right type
-        $this->assertInstanceOf(\Groww\API\Resources\Instruments::class, $this->client->instruments());
-        $this->assertInstanceOf(\Groww\API\Resources\Orders::class, $this->client->orders());
-        $this->assertInstanceOf(\Groww\API\Resources\Portfolio::class, $this->client->portfolio());
-        $this->assertInstanceOf(\Groww\API\Resources\Margin::class, $this->client->margin());
-        $this->assertInstanceOf(\Groww\API\Resources\LiveData::class, $this->client->liveData());
-        $this->assertInstanceOf(\Groww\API\Resources\HistoricalData::class, $this->client->historicalData());
+        $this->assertInstanceOf(Instruments::class, $this->client->instruments());
+        $this->assertInstanceOf(Orders::class, $this->client->orders());
+        $this->assertInstanceOf(SmartOrders::class, $this->client->smartOrders());
+        $this->assertInstanceOf(Portfolio::class, $this->client->portfolio());
+        $this->assertInstanceOf(Margin::class, $this->client->margin());
+        $this->assertInstanceOf(LiveData::class, $this->client->liveData());
+        $this->assertInstanceOf(HistoricalData::class, $this->client->historicalData());
+        $this->assertInstanceOf(User::class, $this->client->user());
     }
-} 
+
+    public function testDefaultHeadersIncludeApiVersion()
+    {
+        $this->assertEquals(Constants::API_VERSION, '1.0');
+        $this->assertEquals('https://api.groww.in/v1', Client::BASE_URL);
+    }
+}

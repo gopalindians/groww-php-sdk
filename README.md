@@ -8,281 +8,166 @@
 [![GitHub issues](https://img.shields.io/github/issues/gopalindians/groww-php-sdk.svg)](https://github.com/gopalindians/groww-php-sdk/issues)
 [![Tests](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php.yml/badge.svg)](https://github.com/gopalindians/groww-php-sdk/actions/workflows/php.yml)
 
-A PHP SDK for interacting with the Groww Trading API.
+PHP SDK for the [Groww Trading API](https://groww.in/trade-api/docs/curl). Equity (`CASH`) and derivatives (`FNO`) only.
 
 ## Installation
-
-Install via Composer:
 
 ```bash
 composer require gopalindians/groww-php-sdk
 ```
 
-## Usage
+## Authentication
 
-### Authentication
+Trading calls use `Authorization: Bearer {ACCESS_TOKEN}` plus `X-API-VERSION: 1.0`.
+
+### Access token (expires daily at 6:00 AM)
+
+Generate a token in Groww: Profile → Settings → Trading APIs → Access Token.
 
 ```php
 use Groww\API\Client;
 
-// Initialize the client with your API key
-$groww = new Client('your_api_key_here');
-
-// Optional: Enable logging
-$groww->setLogging(true, function($level, $message, $context) {
-    // Custom logging implementation
-    error_log("[$level] $message " . json_encode($context));
-});
+$groww = new Client('your_access_token');
 ```
 
-### Trading
-
-#### Place a new order
+### API key and secret (approval checksum)
 
 ```php
-try {
-    $orderData = [
-        'validity' => 'DAY',
-        'exchange' => 'NSE',
+use Groww\API\Client;
+
+$groww = Client::fromApproval('your_api_key', 'your_api_secret');
+```
+
+Checksum is `sha256(secret + timestamp)` with `timestamp` in epoch seconds (valid 10 minutes).
+
+### API key and TOTP
+
+```php
+$groww = Client::fromTotp('your_api_key', '123456');
+```
+
+## Usage
+
+### Orders
+
+```php
+use Groww\API\Constants;
+use Groww\API\Exceptions\GrowwApiException;
+
+$order = $groww->orders()->create([
+    'validity' => Constants::VALIDITY_DAY,
+    'exchange' => Constants::EXCHANGE_NSE,
+    'transaction_type' => Constants::TRANSACTION_BUY,
+    'order_type' => Constants::ORDER_TYPE_MARKET,
+    'price' => 0,
+    'product' => Constants::PRODUCT_CNC,
+    'quantity' => 1,
+    'segment' => Constants::SEGMENT_CASH,
+    'trading_symbol' => 'IDEA',
+    'order_reference_id' => 'Ab-654321234',
+]);
+
+$details = $groww->orders()->details($order['groww_order_id'], Constants::SEGMENT_CASH);
+$list = $groww->orders()->list(['segment' => Constants::SEGMENT_CASH, 'page' => 0, 'page_size' => 100]);
+$groww->orders()->modify($order['groww_order_id'], [
+    'segment' => Constants::SEGMENT_CASH,
+    'order_type' => Constants::ORDER_TYPE_LIMIT,
+    'quantity' => 1,
+    'price' => 10,
+]);
+$groww->orders()->cancel($order['groww_order_id'], Constants::SEGMENT_CASH);
+```
+
+Order type `SL_M` is the documented stop-loss market value (not `SL-M`). Validity is `DAY` only.
+
+### Smart orders (GTT / OCO)
+
+```php
+$gtt = $groww->smartOrders()->create([
+    'reference_id' => 'sref-unique-123',
+    'smart_order_type' => Constants::SMART_ORDER_GTT,
+    'segment' => Constants::SEGMENT_CASH,
+    'trading_symbol' => 'TCS',
+    'quantity' => 10,
+    'trigger_price' => '3985.00',
+    'trigger_direction' => 'DOWN',
+    'order' => ['order_type' => 'LIMIT', 'price' => '3990.00', 'transaction_type' => 'BUY'],
+    'product_type' => Constants::PRODUCT_CNC,
+    'exchange' => Constants::EXCHANGE_NSE,
+    'duration' => Constants::VALIDITY_DAY,
+]);
+```
+
+### Portfolio and margin
+
+```php
+$holdings = $groww->portfolio()->holdings();
+$positions = $groww->portfolio()->positions(['segment' => Constants::SEGMENT_CASH]);
+$margin = $groww->margin()->user();
+$required = $groww->margin()->forOrders(Constants::SEGMENT_CASH, [
+    [
+        'trading_symbol' => 'WIPRO',
         'transaction_type' => 'BUY',
-        'order_type' => 'MARKET',
-        'price' => 0,
-        'product' => 'CNC',
         'quantity' => 1,
-        'segment' => 'CASH',
-        'trading_symbol' => 'IDEA'
-    ];
-    
-    $result = $groww->orders()->create($orderData);
-    print_r($result);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
+        'price' => 100,
+        'order_type' => 'LIMIT',
+        'product' => 'CNC',
+        'exchange' => 'NSE',
+    ],
+]);
 ```
 
-#### Get order details
+### Live data
+
+```php
+$quote = $groww->liveData()->quote('NSE', 'CASH', 'NIFTY');
+$ltp = $groww->liveData()->ltp('CASH', ['NSE_RELIANCE', 'BSE_SENSEX']);
+$ohlc = $groww->liveData()->ohlc('CASH', ['NSE_RELIANCE']);
+$chain = $groww->liveData()->optionChain('NSE', 'NIFTY', '2025-10-14');
+```
+
+### Historical candles and instruments
+
+```php
+$candles = $groww->historicalData()->candles(
+    'NSE',
+    'CASH',
+    'NSE-WIPRO',
+    '2025-09-24 10:56:00',
+    '2025-09-24 15:21:00',
+    '5minute'
+);
+$instruments = $groww->instruments()->download();
+$user = $groww->user()->detail();
+```
+
+Candle intervals: `1minute`, `5minute`, `1hour`, `1day`, and the rest listed in the annexures.
+
+## Error handling
+
+Failed responses use `{ "status": "FAILURE", "error": { "code", "message" } }` (`GA000`–`GA007`). HTTP 429 and `GA003` raise `GrowwRateLimitException`.
 
 ```php
 try {
-    $orderDetails = $groww->orders()->details('GMK39038RDT490CCVRO');
-    print_r($orderDetails);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-#### Cancel an order
-
-```php
-try {
-    $result = $groww->orders()->cancel('GMK39038RDT490CCVRO');
-    print_r($result);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-### Portfolio Management
-
-#### Get holdings
-
-```php
-try {
-    $holdings = $groww->portfolio()->holdings();
-    print_r($holdings);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-#### Get positions
-
-```php
-try {
-    $positions = $groww->portfolio()->positions();
-    print_r($positions);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-### Market Data
-
-#### Search for instruments
-
-```php
-try {
-    $searchResults = $groww->instruments()->search('RELIANCE');
-    print_r($searchResults);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-#### Get live quotes
-
-```php
-try {
-    $quotes = $groww->liveData()->quotes(['RELIANCE', 'IDEA']);
-    print_r($quotes);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-#### Get historical data
-
-```php
-try {
-    $candleData = $groww->historicalData()->candles(
-        'RELIANCE',
-        '1d',
-        '2023-01-01',
-        '2023-01-31'
-    );
-    print_r($candleData);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-### Margin Information
-
-```php
-try {
-    $availableMargin = $groww->margin()->available();
-    print_r($availableMargin);
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error: " . $e->getMessage() . " (Code: " . $e->getErrorCode() . ")";
-}
-```
-
-## Error Handling
-
-The SDK throws `GrowwApiException` when an error occurs. You can catch this exception to handle errors gracefully:
-
-```php
-try {
-    // API operations
+    $groww->orders()->list();
 } catch (Groww\API\Exceptions\GrowwRateLimitException $e) {
-    // Handle rate limiting specifically
-    echo "Rate limit exceeded. Try again after " . $e->getWaitTime() . " seconds.\n";
     sleep($e->getWaitTime());
-    
-    // Retry the request
-} catch (Groww\API\Exceptions\GrowwApiException $e) {
-    echo "Error message: " . $e->getMessage() . "\n";
-    echo "Error code: " . $e->getErrorCode() . "\n";
-    
-    // Handle different error codes
-    switch ($e->getErrorCode()) {
-        case 'GA001':
-            echo "Bad request - check your parameters\n";
-            break;
-        case 'GA005':
-            echo "Authentication error - check your API key\n";
-            break;
-        default:
-            echo "Unknown error occurred\n";
-            break;
-    }
+} catch (GrowwApiException $e) {
+    echo $e->getErrorCode() . ': ' . $e->getMessage();
 }
-```
-
-## Security Features
-
-This SDK implements several security best practices:
-
-1. **Input Validation**: All inputs are validated before being sent to the API.
-2. **TLS/SSL Verification**: HTTPS connections are enforced by default.
-3. **Rate Limiting Protection**: Built-in rate limiting with exponential backoff.
-4. **Parameter Sanitization**: All parameters are sanitized to prevent injection attacks.
-5. **Sensitive Data Protection**: API keys and other sensitive data are redacted in logs.
-6. **Error Handling**: Comprehensive error handling for security-related issues.
-
-### Secure Logging
-
-The SDK includes a secure logging system that redacts sensitive information:
-
-```php
-// Enable logging with a custom logger
-$groww->setLogging(true, function($level, $message, $context) {
-    // Custom logging implementation
-    // All sensitive data is automatically redacted
-});
 ```
 
 ## Testing
 
-The SDK comes with a comprehensive test suite. To run the tests:
-
-1. Install development dependencies:
-
 ```bash
-composer install --dev
-```
-
-2. Run PHPUnit:
-
-```bash
+composer install
 ./vendor/bin/phpunit
 ```
 
-### Continuous Integration
+## API documentation
 
-This project uses GitHub Actions for continuous integration. Every time code is pushed to the `main` or `master` branch, or when a pull request is created against these branches, the test suite is automatically executed on multiple PHP versions (7.4, 8.0, and 8.1).
-
-The CI pipeline:
-1. Sets up the PHP environment
-2. Installs dependencies via Composer
-3. Runs the PHPUnit test suite
-
-You can check the workflow configuration in the `.github/workflows/php-tests.yml` file.
-
-### Writing Your Own Tests
-
-You can use the existing test suite as a reference for writing your own tests. The SDK provides mock responses and helpers to make testing easier:
-
-```php
-use Groww\API\Tests\TestCase;
-use Groww\API\Client;
-use GuzzleHttp\Handler\MockHandler;
-use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Psr7\Response;
-use GuzzleHttp\Client as HttpClient;
-
-class YourTest extends TestCase
-{
-    public function testYourMethod()
-    {
-        // Create a mock response
-        $mockResponse = $this->createSuccessResponse(['data' => 'value']);
-        
-        // Set up mock handler
-        $mock = new MockHandler([
-            new Response(200, [], json_encode($mockResponse))
-        ]);
-        
-        $handlerStack = HandlerStack::create($mock);
-        $httpClient = new HttpClient(['handler' => $handlerStack]);
-        
-        // Create client with mock
-        $client = new Client($this->getTestApiKey());
-        $client->setHttpClient($httpClient);
-        
-        // Test your code
-        $result = $client->get('/endpoint');
-        
-        // Assert results
-        $this->assertEquals($mockResponse, $result);
-    }
-}
-```
-
-## API Documentation
-
-For the full API reference, visit the Groww API documentation at: [https://groww.in/trade-api/docs/curl](https://groww.in/trade-api/docs/curl)
+[https://groww.in/trade-api/docs/curl](https://groww.in/trade-api/docs/curl)
 
 ## License
 
-MIT 
+MIT

@@ -2,56 +2,44 @@
 
 namespace Groww\API\Resources;
 
+use Groww\API\Constants;
 use Groww\API\Exceptions\GrowwApiException;
 
 class Margin extends Resource
 {
     /**
-     * Get available margin
+     * GET /margins/detail/user
      *
-     * @return array Margin details
      * @throws GrowwApiException
      */
-    public function available(): array
+    public function user(): array
     {
-        $response = $this->client->get('/margin/available');
+        $response = $this->client->get('/margins/detail/user');
         return $this->extractPayload($response);
     }
 
     /**
-     * Get margin required for order
+     * POST /margins/detail/orders?segment=
      *
-     * @param array $orderData Order details
-     * @return array Margin requirements
+     * @param array $orders List of order objects
      * @throws GrowwApiException
      */
-    public function required(array $orderData): array
+    public function forOrders(string $segment, array $orders): array
     {
-        $response = $this->client->post('/margin/required', $orderData);
+        if (!in_array($segment, Constants::SEGMENTS, true)) {
+            throw new \InvalidArgumentException('Invalid segment: ' . $segment);
+        }
+
+        if ($orders === [] || !$this->isList($orders)) {
+            throw new \InvalidArgumentException('Orders must be a non-empty JSON array of order objects');
+        }
+
+        $response = $this->client->post('/margins/detail/orders', $orders, ['segment' => $segment]);
         return $this->extractPayload($response);
     }
 
-    /**
-     * Get margin utilization
-     *
-     * @return array Margin utilization details
-     * @throws GrowwApiException
-     */
-    public function utilization(): array
+    protected function isList(array $value): bool
     {
-        $response = $this->client->get('/margin/utilization');
-        return $this->extractPayload($response);
+        return array_keys($value) === range(0, count($value) - 1);
     }
-
-    /**
-     * Get margin limits
-     *
-     * @return array Margin limits
-     * @throws GrowwApiException
-     */
-    public function limits(): array
-    {
-        $response = $this->client->get('/margin/limits');
-        return $this->extractPayload($response);
-    }
-} 
+}
